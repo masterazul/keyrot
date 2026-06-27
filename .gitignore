@@ -1,0 +1,6 @@
+/target
+**/*.rs.bk
+*.vault
+*.vault.audit
+.env
+.DS_Store
