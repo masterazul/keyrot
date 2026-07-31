@@ -12,14 +12,15 @@ fn unique(tag: &str, ext: &str) -> PathBuf {
 fn crypto_roundtrip_and_wrong_key() {
     let salt = crypto::random(crypto::SALT_LEN);
     let key = crypto::derive_key("correct horse", &salt);
-    let (nonce, ct) = crypto::seal(&key[..], b"top secret");
+    let (nonce, ct) = crypto::seal(&key[..], b"top secret", b"ctx");
     assert_eq!(
-        crypto::open(&key[..], &nonce, &ct).as_deref(),
+        crypto::open(&key[..], &nonce, &ct, b"ctx").as_deref(),
         Some(&b"top secret"[..])
     );
+    assert!(crypto::open(&key[..], &nonce, &ct, b"other").is_none());
 
     let wrong = crypto::derive_key("battery staple", &salt);
-    assert!(crypto::open(&wrong[..], &nonce, &ct).is_none());
+    assert!(crypto::open(&wrong[..], &nonce, &ct, b"ctx").is_none());
 }
 
 #[test]
@@ -90,6 +91,38 @@ fn list_history_remove_and_missing_version() {
     assert!(matches!(
         store.get(pass, "alpha", None),
         Err(vault::Error::NotFound(_))
+    ));
+
+    let audit_path = store.audit_path().to_path_buf();
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&audit_path);
+}
+
+#[test]
+fn get_rejects_cross_slot_ciphertext_swap() {
+    let path = unique("swap", "vault");
+    let store = vault::Store::new(path.clone());
+    let pass = "hunter2";
+
+    store.init(pass).unwrap();
+    store.put(pass, "alpha", b"AAAA").unwrap();
+    store.put(pass, "beta", b"BBBB").unwrap();
+
+    let raw = std::fs::read_to_string(&path).unwrap();
+    let mut json: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let a_nonce = json["secrets"]["alpha"]["versions"][0]["nonce"].clone();
+    let a_ct = json["secrets"]["alpha"]["versions"][0]["ct"].clone();
+    let b_nonce = json["secrets"]["beta"]["versions"][0]["nonce"].clone();
+    let b_ct = json["secrets"]["beta"]["versions"][0]["ct"].clone();
+    json["secrets"]["alpha"]["versions"][0]["nonce"] = b_nonce;
+    json["secrets"]["alpha"]["versions"][0]["ct"] = b_ct;
+    json["secrets"]["beta"]["versions"][0]["nonce"] = a_nonce;
+    json["secrets"]["beta"]["versions"][0]["ct"] = a_ct;
+    std::fs::write(&path, serde_json::to_string(&json).unwrap()).unwrap();
+
+    assert!(matches!(
+        store.get(pass, "alpha", None),
+        Err(vault::Error::Corrupt(_))
     ));
 
     let audit_path = store.audit_path().to_path_buf();
