@@ -194,7 +194,7 @@ fn show_audit(store: &vault::Store) -> ExitCode {
                     e.ts,
                     e.action,
                     e.target,
-                    &e.hash[..12]
+                    e.hash.get(..12).unwrap_or(e.hash.as_str())
                 );
             }
             ExitCode::SUCCESS
