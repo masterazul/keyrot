@@ -59,7 +59,8 @@ What keyrot is built to withstand, and what it deliberately does not:
 **Protects against**
 - **Theft of the vault file at rest.** Values are AES-256-GCM sealed under a DEK that is
   itself encrypted; without the passphrase the file is opaque, and GCM's tag rejects any
-  tampering with the ciphertext.
+  tampering with the ciphertext. Each secret is bound to its name and version through the
+  AEAD associated data, so a blob can't be silently transplanted into another secret's slot.
 - **Offline passphrase guessing.** Argon2id is memory-hard, making brute force costly.
 - **Silent history rewriting.** The audit chain is tamper-evident: editing a past action or
   removing an entry mid-log breaks the SHA-256 links, and an empty or missing log is rejected,
@@ -75,6 +76,9 @@ What keyrot is built to withstand, and what it deliberately does not:
   secret.
 - The audit log records that an action happened, not an approval workflow — it is evidence,
   not access control.
+- Rollback of the whole file. Someone who can write the vault can still restore an earlier
+  valid snapshot or downgrade a secret to an older stored version; catching that needs an
+  external anchor keyrot does not keep.
 
 ## License
 
