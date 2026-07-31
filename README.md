@@ -16,8 +16,9 @@ rotated, and every action is written to a hash-chained audit log you can verify.
 - Each secret value is sealed with the DEK using **AES-256-GCM** under a fresh random
   nonce; every write adds a new version, so history is preserved and rotation is a write.
 - Each operation appends an entry to `<vault>.audit`, chained by SHA-256
-  (`hash = sha256(seq || ts || action || target || prev_hash)`), so editing or dropping any
-  past entry breaks the chain and `keyrot verify` reports the exact sequence.
+  (`hash = sha256(seq || ts || action || target || prev_hash)`), so editing or removing an
+  entry mid-log breaks the chain and `keyrot verify` reports the exact sequence; an empty or
+  missing log is rejected too, since `init` always writes the first entry.
 - The vault file is written atomically (temp file + rename), so an interrupted write can
   never leave a half-written, corrupt vault.
 
@@ -60,8 +61,10 @@ What keyrot is built to withstand, and what it deliberately does not:
   itself encrypted; without the passphrase the file is opaque, and GCM's tag rejects any
   tampering with the ciphertext.
 - **Offline passphrase guessing.** Argon2id is memory-hard, making brute force costly.
-- **Silent history rewriting.** The audit chain is tamper-evident: any deletion or edit of
-  a past action is detected by `keyrot verify`.
+- **Silent history rewriting.** The audit chain is tamper-evident: editing a past action or
+  removing an entry mid-log breaks the SHA-256 links, and an empty or missing log is rejected,
+  so `keyrot verify` catches it. Truncating the most recent entries is the one case a single
+  local file can't prove against — that needs an external anchor (out of scope here).
 - **Interrupted writes.** Atomic save means a crash mid-write leaves the previous good
   vault intact, not a corrupt one.
 

@@ -78,6 +78,9 @@ pub fn append(path: &Path, action: &str, target: &str, ts: u64) -> std::io::Resu
 
 pub fn verify(path: &Path) -> Result<usize, String> {
     let log = read(path).map_err(|e| e.to_string())?;
+    if log.is_empty() {
+        return Err("audit log is empty or missing (expected at least the init entry)".to_string());
+    }
     let mut prev = GENESIS.to_string();
     for (i, entry) in log.iter().enumerate() {
         let expected = i as u64 + 1;
