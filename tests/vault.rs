@@ -55,6 +55,55 @@ fn vault_put_get_rotate_versions() {
 }
 
 #[test]
+fn list_history_remove_and_missing_version() {
+    let path = unique("ops", "vault");
+    let store = vault::Store::new(path.clone());
+    let pass = "hunter2";
+
+    store.init(pass).unwrap();
+    store.put(pass, "alpha", b"a1").unwrap();
+    store.put(pass, "beta", b"b1").unwrap();
+    store.rotate(pass, "alpha", b"a2").unwrap();
+
+    let mut listed = store.list(pass).unwrap();
+    listed.sort();
+    assert_eq!(
+        listed,
+        vec![("alpha".to_string(), 2, 2), ("beta".to_string(), 1, 1)]
+    );
+
+    let versions: Vec<u32> = store
+        .history(pass, "alpha")
+        .unwrap()
+        .into_iter()
+        .map(|(v, _ts)| v)
+        .collect();
+    assert_eq!(versions, vec![1, 2]);
+
+    assert!(matches!(
+        store.get(pass, "alpha", Some(9)),
+        Err(vault::Error::NotFound(_))
+    ));
+
+    store.remove(pass, "alpha").unwrap();
+    assert!(store.list(pass).unwrap().iter().all(|(n, _, _)| n != "alpha"));
+    assert!(matches!(
+        store.get(pass, "alpha", None),
+        Err(vault::Error::NotFound(_))
+    ));
+
+    let audit_path = store.audit_path().to_path_buf();
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&audit_path);
+}
+
+#[test]
+fn verify_rejects_empty_or_missing_log() {
+    let path = unique("missing", "audit");
+    assert!(audit::verify(&path).is_err());
+}
+
+#[test]
 fn audit_chain_detects_tampering() {
     let path = unique("audit", "audit");
     audit::append(&path, "init", "", 100).unwrap();
