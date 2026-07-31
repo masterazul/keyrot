@@ -58,7 +58,11 @@ impl Store {
 
     fn save(&self, vault: &Vault) -> Result<(), Error> {
         let raw = serde_json::to_vec_pretty(vault).map_err(|e| Error::Corrupt(e.to_string()))?;
-        std::fs::write(&self.path, raw).map_err(|e| Error::Io(e.to_string()))
+        let mut tmp = self.path.clone().into_os_string();
+        tmp.push(".tmp");
+        let tmp = PathBuf::from(tmp);
+        std::fs::write(&tmp, &raw).map_err(|e| Error::Io(e.to_string()))?;
+        std::fs::rename(&tmp, &self.path).map_err(|e| Error::Io(e.to_string()))
     }
 
     fn record(&self, action: &str, target: &str) {
