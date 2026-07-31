@@ -1,6 +1,8 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use zeroize::Zeroizing;
+
 use crate::model::{Kdf, Sealed, Secret, Vault, Version};
 use crate::util::{b64, now, unb64};
 use crate::{audit, crypto};
@@ -77,7 +79,7 @@ impl Store {
         }
         let salt = crypto::random(crypto::SALT_LEN);
         let kek = crypto::derive_key(passphrase, &salt);
-        let dek = crypto::random(crypto::KEY_LEN);
+        let dek = Zeroizing::new(crypto::random(crypto::KEY_LEN));
         let (nonce, ct) = crypto::seal(&kek[..], &dek);
         let vault = Vault {
             format: 1,
@@ -96,13 +98,13 @@ impl Store {
         Ok(())
     }
 
-    fn unlock(&self, passphrase: &str) -> Result<(Vault, Vec<u8>), Error> {
+    fn unlock(&self, passphrase: &str) -> Result<(Vault, Zeroizing<Vec<u8>>), Error> {
         let vault = self.load()?;
         let salt = unb64(&vault.kdf.salt).ok_or_else(|| Error::Corrupt("salt".into()))?;
         let kek = crypto::derive_key(passphrase, &salt);
         let nonce = unb64(&vault.dek.nonce).ok_or_else(|| Error::Corrupt("dek nonce".into()))?;
         let ct = unb64(&vault.dek.ct).ok_or_else(|| Error::Corrupt("dek".into()))?;
-        let dek = crypto::open(&kek[..], &nonce, &ct).ok_or(Error::WrongPassphrase)?;
+        let dek = Zeroizing::new(crypto::open(&kek[..], &nonce, &ct).ok_or(Error::WrongPassphrase)?);
         Ok((vault, dek))
     }
 
