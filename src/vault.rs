@@ -7,6 +7,16 @@ use crate::model::{Kdf, Sealed, Secret, Vault, Version};
 use crate::util::{b64, now, unb64};
 use crate::{audit, crypto};
 
+const FORMAT: u32 = 2;
+const DEK_AAD: &[u8] = b"keyrot/dek";
+
+fn context(name: &str, version: u32) -> Vec<u8> {
+    let mut aad = (name.len() as u64).to_le_bytes().to_vec();
+    aad.extend_from_slice(name.as_bytes());
+    aad.extend_from_slice(&version.to_le_bytes());
+    aad
+}
+
 #[derive(Debug)]
 pub enum Error {
     Io(String),
@@ -80,9 +90,9 @@ impl Store {
         let salt = crypto::random(crypto::SALT_LEN);
         let kek = crypto::derive_key(passphrase, &salt);
         let dek = Zeroizing::new(crypto::random(crypto::KEY_LEN));
-        let (nonce, ct) = crypto::seal(&kek[..], &dek);
+        let (nonce, ct) = crypto::seal(&kek[..], &dek, DEK_AAD);
         let vault = Vault {
-            format: 1,
+            format: FORMAT,
             kdf: Kdf {
                 algo: "argon2id".into(),
                 salt: b64(&salt),
@@ -100,11 +110,18 @@ impl Store {
 
     fn unlock(&self, passphrase: &str) -> Result<(Vault, Zeroizing<Vec<u8>>), Error> {
         let vault = self.load()?;
+        if vault.format != FORMAT {
+            return Err(Error::Corrupt(format!(
+                "unsupported vault format {} (re-init required)",
+                vault.format
+            )));
+        }
         let salt = unb64(&vault.kdf.salt).ok_or_else(|| Error::Corrupt("salt".into()))?;
         let kek = crypto::derive_key(passphrase, &salt);
         let nonce = unb64(&vault.dek.nonce).ok_or_else(|| Error::Corrupt("dek nonce".into()))?;
         let ct = unb64(&vault.dek.ct).ok_or_else(|| Error::Corrupt("dek".into()))?;
-        let dek = Zeroizing::new(crypto::open(&kek[..], &nonce, &ct).ok_or(Error::WrongPassphrase)?);
+        let dek =
+            Zeroizing::new(crypto::open(&kek[..], &nonce, &ct, DEK_AAD).ok_or(Error::WrongPassphrase)?);
         Ok((vault, dek))
     }
 
@@ -120,7 +137,6 @@ impl Store {
         if require_existing && !vault.secrets.contains_key(name) {
             return Err(Error::NotFound(name.into()));
         }
-        let (nonce, ct) = crypto::seal(&dek, value);
         let secret = vault
             .secrets
             .entry(name.to_string())
@@ -129,6 +145,7 @@ impl Store {
                 versions: Vec::new(),
             });
         let version = secret.current + 1;
+        let (nonce, ct) = crypto::seal(&dek, value, &context(name, version));
         secret.versions.push(Version {
             version,
             created_at: now(),
@@ -168,8 +185,8 @@ impl Store {
             .ok_or_else(|| Error::NotFound(format!("{name}@{want}")))?;
         let nonce = unb64(&chosen.nonce).ok_or_else(|| Error::Corrupt("nonce".into()))?;
         let ct = unb64(&chosen.ct).ok_or_else(|| Error::Corrupt("ciphertext".into()))?;
-        let plaintext =
-            crypto::open(&dek, &nonce, &ct).ok_or_else(|| Error::Corrupt("secret".into()))?;
+        let plaintext = crypto::open(&dek, &nonce, &ct, &context(name, want))
+            .ok_or_else(|| Error::Corrupt("secret".into()))?;
         self.record("get", name);
         Ok(plaintext)
     }

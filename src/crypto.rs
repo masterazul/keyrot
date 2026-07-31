@@ -1,4 +1,4 @@
-use aes_gcm::aead::Aead;
+use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
 use argon2::Argon2;
 use zeroize::Zeroizing;
@@ -21,16 +21,30 @@ pub fn derive_key(passphrase: &str, salt: &[u8]) -> Zeroizing<[u8; KEY_LEN]> {
     key
 }
 
-pub fn seal(key: &[u8], plaintext: &[u8]) -> (Vec<u8>, Vec<u8>) {
+pub fn seal(key: &[u8], plaintext: &[u8], aad: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
     let nonce = random(NONCE_LEN);
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), plaintext)
+        .encrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: plaintext,
+                aad,
+            },
+        )
         .expect("aead encrypt failed");
     (nonce, ciphertext)
 }
 
-pub fn open(key: &[u8], nonce: &[u8], ciphertext: &[u8]) -> Option<Vec<u8>> {
+pub fn open(key: &[u8], nonce: &[u8], ciphertext: &[u8], aad: &[u8]) -> Option<Vec<u8>> {
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
-    cipher.decrypt(Nonce::from_slice(nonce), ciphertext).ok()
+    cipher
+        .decrypt(
+            Nonce::from_slice(nonce),
+            Payload {
+                msg: ciphertext,
+                aad,
+            },
+        )
+        .ok()
 }
