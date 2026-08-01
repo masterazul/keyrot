@@ -5,14 +5,19 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-2021-orange.svg)
 
-A small encrypted secrets vault for the command line. Secrets are versioned, can be
-rotated, and every action is written to a hash-chained audit log you can verify.
+Your passphrase never encrypts a secret. Argon2id stretches it into a key that wraps a
+second key, and that second one does the sealing — so changing the passphrase rewraps 32
+bytes instead of re-encrypting the whole vault.
+
+Everything else follows from that. A write adds a version rather than replacing one, so
+yesterday's credential is still there when a deploy needs rolling back. And every operation
+appends to a SHA-256 chain: edit a past entry and `keyrot verify` names the exact sequence
+that stopped matching.
 
 ## How it works
 
-- A passphrase is stretched with **Argon2id** into a key-encryption key (KEK).
-- The KEK wraps a random 256-bit data-encryption key (DEK) — **envelope encryption**, so
-  a passphrase change re-wraps one key instead of re-encrypting every secret.
+- **Argon2id** turns the passphrase into a key-encryption key (KEK), which wraps a random
+  256-bit data-encryption key (DEK). That is the envelope described above.
 - Each secret value is sealed with the DEK using **AES-256-GCM** under a fresh random
   nonce; every write adds a new version, so history is preserved and rotation is a write.
 - Each operation appends an entry to `<vault>.audit`, chained by SHA-256
@@ -79,6 +84,19 @@ What keyrot is built to withstand, and what it deliberately does not:
 - Rollback of the whole file. Someone who can write the vault can still restore an earlier
   valid snapshot or downgrade a secret to an older stored version; catching that needs an
   external anchor keyrot does not keep.
+
+## Hardening
+
+The pipeline is scoped, not just green.
+
+- Actions run from a commit digest. A tag can be moved; a digest cannot.
+- Workflows declare `permissions: contents: read`, so `GITHUB_TOKEN` has nothing to write with.
+- `cargo audit --deny warnings` runs on every push and again weekly. Dependabot watches the
+  crates and the pinned digests alike.
+- `#![forbid(unsafe_code)]` on both crate roots — enforced by the compiler, not by habit.
+- Release builds keep overflow checks. Paired with `panic = "abort"`, an overflow stops the
+  process instead of wrapping into a wrong answer.
+- `gitleaks` reads the full history on every push.
 
 ## License
 
