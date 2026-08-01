@@ -138,8 +138,9 @@ impl Store {
         let kek = crypto::derive_key(passphrase, &salt);
         let nonce = unb64(&vault.dek.nonce).ok_or_else(|| Error::Corrupt("dek nonce".into()))?;
         let ct = unb64(&vault.dek.ct).ok_or_else(|| Error::Corrupt("dek".into()))?;
-        let dek =
-            Zeroizing::new(crypto::open(&kek[..], &nonce, &ct, DEK_AAD).ok_or(Error::WrongPassphrase)?);
+        let dek = Zeroizing::new(
+            crypto::open(&kek[..], &nonce, &ct, DEK_AAD).ok_or(Error::WrongPassphrase)?,
+        );
         Ok((vault, dek))
     }
 

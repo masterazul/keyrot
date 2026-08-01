@@ -25,6 +25,7 @@ zeroize = "1"
 base64 = "0.22"
 
 [profile.release]
+overflow-checks = true
 opt-level = "z"
 lto = true
 codegen-units = 1
