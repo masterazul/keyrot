@@ -1,5 +1,5 @@
 use std::fs::OpenOptions;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Seek, Write};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -74,7 +74,18 @@ pub fn append(path: &Path, action: &str, target: &str, ts: u64) -> std::io::Resu
         prev,
     };
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    writeln!(file, "{}", serde_json::to_string(&entry).unwrap())?;
+    if file.metadata()?.len() > 0 {
+        let mut tail = [0u8; 1];
+        let mut reader = std::fs::File::open(path)?;
+        reader.seek(std::io::SeekFrom::End(-1))?;
+        reader.read_exact(&mut tail)?;
+        if tail[0] != b'\n' {
+            file.write_all(b"\n")?;
+        }
+    }
+    let mut line = serde_json::to_string(&entry).unwrap();
+    line.push('\n');
+    file.write_all(line.as_bytes())?;
     Ok(entry)
 }
 
