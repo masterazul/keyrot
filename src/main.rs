@@ -83,11 +83,13 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "gen" => {
-            let len = args
-                .positionals
-                .first()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(24usize);
+            let len = match args.positionals.first() {
+                None => 24usize,
+                Some(s) => match s.parse::<usize>() {
+                    Ok(n) if n > 0 => n,
+                    _ => return usage_error("gen needs a positive byte count"),
+                },
+            };
             println!("{}", b64(&crypto::random(len)));
             ExitCode::SUCCESS
         }
@@ -113,7 +115,7 @@ fn run(args: Args) -> ExitCode {
         "get" => match name(&args) {
             Some(name) => store
                 .get(&passphrase(), &name, args.version)
-                .map(print_secret),
+                .and_then(print_secret),
             None => return usage_error("get needs a name"),
         },
         "rm" => match name(&args) {
@@ -159,10 +161,12 @@ fn report_version(version: u32) {
     println!("stored version {version}");
 }
 
-fn print_secret(value: Vec<u8>) {
+fn print_secret(value: Vec<u8>) -> Result<(), vault::Error> {
     let mut out = std::io::stdout();
-    let _ = out.write_all(&value);
-    let _ = out.write_all(b"\n");
+    out.write_all(&value)
+        .and_then(|_| out.write_all(b"\n"))
+        .and_then(|_| out.flush())
+        .map_err(|e| vault::Error::Io(e.to_string()))
 }
 
 fn collect_value(args: &Args) -> Result<Vec<u8>, vault::Error> {
@@ -251,6 +255,14 @@ fn passphrase() -> String {
     eprint!("passphrase: ");
     let _ = std::io::stderr().flush();
     let mut input = String::new();
-    let _ = std::io::stdin().read_line(&mut input);
-    input.trim_end_matches(['\n', '\r']).to_string()
+    if std::io::stdin().read_line(&mut input).unwrap_or(0) == 0 {
+        eprintln!("error: empty passphrase");
+        std::process::exit(1);
+    }
+    let input = input.trim_end_matches(['\n', '\r']).to_string();
+    if input.is_empty() {
+        eprintln!("error: empty passphrase");
+        std::process::exit(1);
+    }
+    input
 }
