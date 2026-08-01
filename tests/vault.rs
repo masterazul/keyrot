@@ -87,7 +87,11 @@ fn list_history_remove_and_missing_version() {
     ));
 
     store.remove(pass, "alpha").unwrap();
-    assert!(store.list(pass).unwrap().iter().all(|(n, _, _)| n != "alpha"));
+    assert!(store
+        .list(pass)
+        .unwrap()
+        .iter()
+        .all(|(n, _, _)| n != "alpha"));
     assert!(matches!(
         store.get(pass, "alpha", None),
         Err(vault::Error::NotFound(_))
