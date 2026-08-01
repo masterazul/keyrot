@@ -51,14 +51,8 @@ fn parse() -> Option<Args> {
     };
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--vault" => match iter.next() {
-                Some(path) => a.vault = Some(path),
-                None => return None,
-            },
-            "--version" => match iter.next().and_then(|s| s.parse::<u32>().ok()) {
-                Some(v) => a.version = Some(v),
-                None => return None,
-            },
+            "--vault" => a.vault = Some(iter.next()?),
+            "--version" => a.version = Some(iter.next().and_then(|s| s.parse::<u32>().ok())?),
             "--generate" | "-g" => a.generate = true,
             other => a.positionals.push(other.to_string()),
         }
