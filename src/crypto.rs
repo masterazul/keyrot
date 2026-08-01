@@ -37,6 +37,9 @@ pub fn seal(key: &[u8], plaintext: &[u8], aad: &[u8]) -> (Vec<u8>, Vec<u8>) {
 }
 
 pub fn open(key: &[u8], nonce: &[u8], ciphertext: &[u8], aad: &[u8]) -> Option<Vec<u8>> {
+    if nonce.len() != NONCE_LEN || key.len() != KEY_LEN {
+        return None;
+    }
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
     cipher
         .decrypt(

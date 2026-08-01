@@ -1,4 +1,5 @@
 use std::fmt;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use zeroize::Zeroizing;
@@ -71,16 +72,29 @@ impl Store {
     fn save(&self, vault: &Vault) -> Result<(), Error> {
         let raw = serde_json::to_vec_pretty(vault).map_err(|e| Error::Corrupt(e.to_string()))?;
         let mut tmp = self.path.clone().into_os_string();
-        tmp.push(".tmp");
+        let tag = b64(&crypto::random(6)).replace(['/', '+', '='], "_");
+        tmp.push(format!(".{}.{}.tmp", std::process::id(), tag));
         let tmp = PathBuf::from(tmp);
-        std::fs::write(&tmp, &raw).map_err(|e| Error::Io(e.to_string()))?;
-        std::fs::rename(&tmp, &self.path).map_err(|e| Error::Io(e.to_string()))
+        let mut file = std::fs::File::create(&tmp).map_err(|e| Error::Io(e.to_string()))?;
+        file.write_all(&raw).map_err(|e| Error::Io(e.to_string()))?;
+        file.sync_all().map_err(|e| Error::Io(e.to_string()))?;
+        drop(file);
+        std::fs::rename(&tmp, &self.path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            Error::Io(e.to_string())
+        })
     }
 
     fn record(&self, action: &str, target: &str) {
         if let Err(e) = audit::append(&self.audit_path, action, target, now()) {
             eprintln!("warning: audit append failed: {e}");
         }
+    }
+
+    fn record_strict(&self, action: &str, target: &str) -> Result<(), Error> {
+        audit::append(&self.audit_path, action, target, now())
+            .map(|_| ())
+            .map_err(|e| Error::Io(e.to_string()))
     }
 
     pub fn init(&self, passphrase: &str) -> Result<(), Error> {
@@ -104,8 +118,8 @@ impl Store {
             },
             secrets: Default::default(),
         };
+        self.record_strict("init", "")?;
         self.save(&vault)?;
-        self.record("init", "");
         Ok(())
     }
 
@@ -118,6 +132,9 @@ impl Store {
             )));
         }
         let salt = unb64(&vault.kdf.salt).ok_or_else(|| Error::Corrupt("salt".into()))?;
+        if salt.len() != crypto::SALT_LEN {
+            return Err(Error::Corrupt("salt".into()));
+        }
         let kek = crypto::derive_key(passphrase, &salt);
         let nonce = unb64(&vault.dek.nonce).ok_or_else(|| Error::Corrupt("dek nonce".into()))?;
         let ct = unb64(&vault.dek.ct).ok_or_else(|| Error::Corrupt("dek".into()))?;
@@ -146,7 +163,10 @@ impl Store {
                 current: 0,
                 versions: Vec::new(),
             });
-        let version = secret.current + 1;
+        let version = secret
+            .current
+            .checked_add(1)
+            .ok_or_else(|| Error::Corrupt("version counter overflow".into()))?;
         let (nonce, ct) = crypto::seal(&dek, value, &context(name, version));
         secret.versions.push(Version {
             version,
@@ -155,8 +175,8 @@ impl Store {
             ct: b64(&ct),
         });
         secret.current = version;
+        self.record_strict(action, name)?;
         self.save(&vault)?;
-        self.record(action, name);
         Ok(version)
     }
 
@@ -199,8 +219,8 @@ impl Store {
         if vault.secrets.remove(name).is_none() {
             return Err(Error::NotFound(name.into()));
         }
+        self.record_strict("rm", name)?;
         self.save(&vault)?;
-        self.record("rm", name);
         Ok(())
     }
 
