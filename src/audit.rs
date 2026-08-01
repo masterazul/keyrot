@@ -58,6 +58,8 @@ pub fn read(path: &Path) -> std::io::Result<Vec<Entry>> {
 }
 
 pub fn append(path: &Path, action: &str, target: &str, ts: u64) -> std::io::Result<Entry> {
+    let _guard = crate::util::FileLock::acquire(path)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::WouldBlock, e))?;
     let log = read(path)?;
     let (seq, prev) = match log.last() {
         Some(last) => (last.seq + 1, last.hash.clone()),

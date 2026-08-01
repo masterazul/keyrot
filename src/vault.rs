@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
 
 use crate::model::{Kdf, Sealed, Secret, Vault, Version};
-use crate::util::{b64, now, unb64};
+use crate::util::{b64, now, unb64, FileLock};
 use crate::{audit, crypto};
 
 const FORMAT: u32 = 2;
@@ -84,6 +84,7 @@ impl Store {
     }
 
     pub fn init(&self, passphrase: &str) -> Result<(), Error> {
+        let _guard = FileLock::acquire(&self.path).map_err(Error::Io)?;
         if self.exists() {
             return Err(Error::AlreadyInitialized);
         }
@@ -133,6 +134,7 @@ impl Store {
         action: &str,
         require_existing: bool,
     ) -> Result<u32, Error> {
+        let _guard = FileLock::acquire(&self.path).map_err(Error::Io)?;
         let (mut vault, dek) = self.unlock(passphrase)?;
         if require_existing && !vault.secrets.contains_key(name) {
             return Err(Error::NotFound(name.into()));
@@ -192,6 +194,7 @@ impl Store {
     }
 
     pub fn remove(&self, passphrase: &str, name: &str) -> Result<(), Error> {
+        let _guard = FileLock::acquire(&self.path).map_err(Error::Io)?;
         let (mut vault, _dek) = self.unlock(passphrase)?;
         if vault.secrets.remove(name).is_none() {
             return Err(Error::NotFound(name.into()));
