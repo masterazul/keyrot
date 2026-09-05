@@ -18,7 +18,7 @@ path = "src/main.rs"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 aes-gcm = "0.10"
-argon2 = "0.5"
+argon2 = "0.6"
 sha2 = "0.10"
 getrandom = "0.2"
 zeroize = "1"
